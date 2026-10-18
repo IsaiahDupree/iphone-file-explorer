@@ -1,0 +1,9 @@
+fastapi
+uvicorn
+pymobiledevice3
+anthropic
+python-dotenv
+aiofiles
+pillow
+httpx
+jinja2

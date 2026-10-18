@@ -1,0 +1,25 @@
+
+# Local configuration, identity, and runtime state
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.private.md
+accounts/
+data/
+logs/
+output/
+outputs/
+coverage/
+node_modules/
+.venv/
+venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.next/
+.vercel/
+build/
+dist/
+.DS_Store

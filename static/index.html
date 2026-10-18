@@ -1,0 +1,1472 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>iPhone File Explorer</title>
+  <style>
+    /* ------------------------------------------------------------------ */
+    /* Reset + variables                                                    */
+    /* ------------------------------------------------------------------ */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg-app:      #1c1c1e;
+      --bg-sidebar:  #2c2c2e;
+      --bg-main:     #f2f2f7;
+      --bg-card:     #ffffff;
+      --bg-header:   #1c1c1e;
+      --bg-input:    #3a3a3c;
+      --bg-overlay:  rgba(0,0,0,0.72);
+
+      --text-primary:   #f5f5f7;
+      --text-secondary: #aeaeb2;
+      --text-dark:      #1c1c1e;
+      --text-mid:       #48484a;
+
+      --accent:         #0a84ff;
+      --accent-hover:   #0070e0;
+      --accent-danger:  #ff453a;
+      --accent-green:   #30d158;
+      --accent-yellow:  #ffd60a;
+
+      --border:         rgba(255,255,255,0.08);
+      --border-light:   rgba(0,0,0,0.08);
+
+      --radius-sm:  6px;
+      --radius:     10px;
+      --radius-lg:  16px;
+
+      --sidebar-w:  260px;
+      --ai-panel-w: 360px;
+      --header-h:   56px;
+    }
+
+    html, body { height: 100%; font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif; }
+    body { background: var(--bg-app); color: var(--text-primary); display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+
+    /* ------------------------------------------------------------------ */
+    /* Typography helpers                                                   */
+    /* ------------------------------------------------------------------ */
+    .mono { font-family: "SF Mono", "Fira Code", monospace; font-size: 12px; }
+    .muted { color: var(--text-secondary); }
+    .truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+    /* ------------------------------------------------------------------ */
+    /* Header bar                                                           */
+    /* ------------------------------------------------------------------ */
+    #header {
+      height: var(--header-h);
+      background: var(--bg-header);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      padding: 0 20px;
+      gap: 16px;
+      flex-shrink: 0;
+      z-index: 100;
+    }
+
+    #header-icon { font-size: 22px; }
+
+    #header-title {
+      font-size: 17px;
+      font-weight: 600;
+      letter-spacing: -0.3px;
+      color: var(--text-primary);
+    }
+
+    #device-pill {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      background: var(--bg-input);
+      border-radius: 20px;
+      padding: 4px 12px;
+      font-size: 12px;
+      color: var(--text-secondary);
+      margin-left: 4px;
+    }
+
+    #device-dot {
+      width: 7px; height: 7px;
+      border-radius: 50%;
+      background: var(--accent-danger);
+      flex-shrink: 0;
+      transition: background 0.3s;
+    }
+    #device-dot.connected { background: var(--accent-green); }
+
+    #device-name { max-width: 180px; }
+
+    /* Search bar */
+    #search-wrap {
+      margin-left: auto;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    #search-input {
+      background: var(--bg-input);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 6px 12px 6px 34px;
+      color: var(--text-primary);
+      font-size: 13px;
+      width: 220px;
+      outline: none;
+      transition: border-color 0.2s, width 0.2s;
+    }
+    #search-input:focus { border-color: var(--accent); width: 280px; }
+    #search-input::placeholder { color: var(--text-secondary); }
+
+    #search-wrap { position: relative; }
+    .search-icon {
+      position: absolute;
+      left: 10px; top: 50%;
+      transform: translateY(-50%);
+      color: var(--text-secondary);
+      font-size: 14px;
+      pointer-events: none;
+    }
+
+    #search-type {
+      background: var(--bg-input);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 6px 8px;
+      color: var(--text-secondary);
+      font-size: 12px;
+      outline: none;
+      cursor: pointer;
+    }
+    #search-type option { background: var(--bg-sidebar); }
+
+    #view-toggle {
+      display: flex;
+      gap: 2px;
+      background: var(--bg-input);
+      border-radius: 8px;
+      padding: 3px;
+    }
+    .view-btn {
+      background: transparent;
+      border: none;
+      color: var(--text-secondary);
+      cursor: pointer;
+      padding: 4px 8px;
+      border-radius: 6px;
+      font-size: 14px;
+      transition: background 0.15s, color 0.15s;
+    }
+    .view-btn.active { background: var(--accent); color: #fff; }
+
+    /* ------------------------------------------------------------------ */
+    /* Layout body                                                          */
+    /* ------------------------------------------------------------------ */
+    #layout {
+      display: flex;
+      flex: 1;
+      overflow: hidden;
+    }
+
+    /* ------------------------------------------------------------------ */
+    /* Sidebar / Folder Tree                                                */
+    /* ------------------------------------------------------------------ */
+    #sidebar {
+      width: var(--sidebar-w);
+      background: var(--bg-sidebar);
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      flex-shrink: 0;
+    }
+
+    #sidebar-header {
+      padding: 14px 16px 10px;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.8px;
+      text-transform: uppercase;
+      color: var(--text-secondary);
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+
+    #tree {
+      flex: 1;
+      overflow-y: auto;
+      padding: 8px 0;
+    }
+
+    #tree::-webkit-scrollbar { width: 4px; }
+    #tree::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 4px; }
+
+    .tree-item {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 5px 12px 5px 0;
+      cursor: pointer;
+      border-radius: var(--radius-sm);
+      margin: 1px 6px;
+      font-size: 13px;
+      color: var(--text-primary);
+      user-select: none;
+      transition: background 0.12s;
+      min-width: 0;
+    }
+    .tree-item:hover { background: rgba(255,255,255,0.06); }
+    .tree-item.active { background: var(--accent); color: #fff; }
+    .tree-item.active .muted { color: rgba(255,255,255,0.7); }
+
+    .tree-toggle {
+      width: 16px; height: 16px;
+      flex-shrink: 0;
+      display: flex; align-items: center; justify-content: center;
+      color: var(--text-secondary);
+      font-size: 10px;
+      transition: transform 0.15s;
+    }
+    .tree-toggle.open { transform: rotate(90deg); }
+    .tree-toggle.leaf { opacity: 0; pointer-events: none; }
+
+    .tree-icon { font-size: 15px; flex-shrink: 0; }
+    .tree-label { flex: 1; min-width: 0; }
+
+    .tree-children { padding-left: 16px; }
+
+    /* ------------------------------------------------------------------ */
+    /* Main content                                                         */
+    /* ------------------------------------------------------------------ */
+    #main {
+      flex: 1;
+      background: var(--bg-main);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* Breadcrumb */
+    #breadcrumb {
+      padding: 10px 20px;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      flex-wrap: wrap;
+      border-bottom: 1px solid var(--border-light);
+      background: var(--bg-card);
+      flex-shrink: 0;
+    }
+
+    .breadcrumb-sep { color: #aaa; font-size: 13px; }
+    .breadcrumb-part {
+      font-size: 13px;
+      color: var(--accent);
+      cursor: pointer;
+      padding: 2px 4px;
+      border-radius: 4px;
+      transition: background 0.12s;
+    }
+    .breadcrumb-part:hover { background: rgba(10,132,255,0.1); }
+    .breadcrumb-part.last { color: var(--text-dark); font-weight: 500; cursor: default; }
+    .breadcrumb-part.last:hover { background: transparent; }
+
+    /* Files area */
+    #files-wrap {
+      flex: 1;
+      overflow-y: auto;
+      padding: 16px 20px;
+    }
+    #files-wrap::-webkit-scrollbar { width: 6px; }
+    #files-wrap::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.12); border-radius: 6px; }
+
+    /* Status / empty / error */
+    #status-banner {
+      display: none;
+      padding: 12px 16px;
+      border-radius: var(--radius);
+      margin-bottom: 16px;
+      font-size: 13px;
+      align-items: center;
+      gap: 10px;
+    }
+    #status-banner.info  { background: rgba(10,132,255,0.12); color: #0a84ff; display: flex; }
+    #status-banner.error { background: rgba(255,69,58,0.12);  color: #ff453a; display: flex; }
+
+    /* Grid view */
+    #file-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+      gap: 12px;
+    }
+
+    .file-card {
+      background: var(--bg-card);
+      border-radius: var(--radius);
+      padding: 12px 10px 10px;
+      cursor: pointer;
+      transition: box-shadow 0.15s, transform 0.12s;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+      border: 2px solid transparent;
+      position: relative;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+    }
+    .file-card:hover { box-shadow: 0 4px 16px rgba(0,0,0,0.12); transform: translateY(-1px); }
+    .file-card.selected { border-color: var(--accent); }
+
+    .file-thumb {
+      width: 100%;
+      aspect-ratio: 1;
+      border-radius: 6px;
+      object-fit: cover;
+      background: #f0f0f0;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 40px;
+      overflow: hidden;
+    }
+    .file-thumb img { width: 100%; height: 100%; object-fit: cover; border-radius: 6px; }
+
+    .file-name {
+      font-size: 11px;
+      font-weight: 500;
+      color: var(--text-dark);
+      text-align: center;
+      word-break: break-word;
+      line-height: 1.4;
+      max-height: 2.8em;
+      overflow: hidden;
+    }
+    .file-meta { font-size: 10px; color: #888; text-align: center; }
+
+    .file-actions {
+      position: absolute;
+      top: 6px; right: 6px;
+      display: none;
+      gap: 4px;
+    }
+    .file-card:hover .file-actions,
+    .file-card.selected .file-actions { display: flex; }
+
+    .icon-btn {
+      background: rgba(0,0,0,0.55);
+      border: none;
+      border-radius: 50%;
+      color: #fff;
+      width: 26px; height: 26px;
+      display: flex; align-items: center; justify-content: center;
+      cursor: pointer;
+      font-size: 12px;
+      transition: background 0.15s;
+      backdrop-filter: blur(4px);
+    }
+    .icon-btn:hover { background: var(--accent); }
+    .icon-btn.ai-btn:hover { background: #a855f7; }
+
+    /* List view */
+    #file-list { display: none; }
+    #file-list.visible { display: block; }
+    #file-grid.list-mode { display: none; }
+
+    .list-row {
+      display: flex;
+      align-items: center;
+      padding: 9px 12px;
+      border-radius: var(--radius-sm);
+      gap: 10px;
+      cursor: pointer;
+      background: var(--bg-card);
+      margin-bottom: 2px;
+      transition: background 0.12s;
+      border: 1.5px solid transparent;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+    }
+    .list-row:hover { background: #f7f7fb; }
+    .list-row.selected { border-color: var(--accent); }
+
+    .list-icon { font-size: 20px; flex-shrink: 0; width: 28px; text-align: center; }
+    .list-name { flex: 1; font-size: 13px; color: var(--text-dark); font-weight: 500; min-width: 0; }
+    .list-size { font-size: 11px; color: #888; width: 80px; text-align: right; flex-shrink: 0; }
+    .list-date { font-size: 11px; color: #888; width: 140px; text-align: right; flex-shrink: 0; }
+    .list-actions { display: flex; gap: 4px; opacity: 0; transition: opacity 0.15s; }
+    .list-row:hover .list-actions,
+    .list-row.selected .list-actions { opacity: 1; }
+
+    .list-icon-btn {
+      background: transparent;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      color: var(--text-mid);
+      width: 26px; height: 26px;
+      display: flex; align-items: center; justify-content: center;
+      cursor: pointer;
+      font-size: 12px;
+      transition: background 0.12s, color 0.12s;
+    }
+    .list-icon-btn:hover { background: var(--accent); border-color: var(--accent); color: #fff; }
+    .list-icon-btn.ai:hover { background: #a855f7; border-color: #a855f7; color: #fff; }
+
+    /* Loading spinner */
+    .spinner {
+      display: inline-block;
+      width: 18px; height: 18px;
+      border: 2px solid rgba(10,132,255,0.3);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      flex-shrink: 0;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ------------------------------------------------------------------ */
+    /* AI Description panel (right drawer)                                 */
+    /* ------------------------------------------------------------------ */
+    #ai-panel {
+      width: 0;
+      background: var(--bg-sidebar);
+      border-left: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      transition: width 0.25s cubic-bezier(.4,0,.2,1);
+      flex-shrink: 0;
+    }
+    #ai-panel.open { width: var(--ai-panel-w); }
+
+    #ai-panel-inner {
+      width: var(--ai-panel-w);
+      padding: 18px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      overflow-y: auto;
+      height: 100%;
+    }
+    #ai-panel-inner::-webkit-scrollbar { width: 4px; }
+    #ai-panel-inner::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 4px; }
+
+    #ai-panel-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    #ai-panel-title { font-size: 14px; font-weight: 600; }
+    #ai-panel-close {
+      background: var(--bg-input);
+      border: none;
+      color: var(--text-secondary);
+      width: 28px; height: 28px;
+      border-radius: 50%;
+      cursor: pointer;
+      font-size: 16px;
+      display: flex; align-items: center; justify-content: center;
+      transition: background 0.15s;
+    }
+    #ai-panel-close:hover { background: rgba(255,255,255,0.12); }
+
+    #ai-preview {
+      width: 100%;
+      aspect-ratio: 4/3;
+      border-radius: var(--radius);
+      overflow: hidden;
+      background: rgba(255,255,255,0.05);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 48px;
+    }
+    #ai-preview img { width: 100%; height: 100%; object-fit: cover; }
+
+    #ai-file-name {
+      font-size: 13px;
+      font-weight: 600;
+      word-break: break-all;
+    }
+
+    #ai-desc-btn {
+      background: #a855f7;
+      border: none;
+      color: #fff;
+      border-radius: var(--radius-sm);
+      padding: 9px 14px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      transition: background 0.15s, opacity 0.15s;
+    }
+    #ai-desc-btn:hover { background: #9333ea; }
+    #ai-desc-btn:disabled { opacity: 0.5; cursor: default; }
+
+    #ai-download-btn {
+      background: var(--accent);
+      border: none;
+      color: #fff;
+      border-radius: var(--radius-sm);
+      padding: 9px 14px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      transition: background 0.15s;
+      text-decoration: none;
+    }
+    #ai-download-btn:hover { background: var(--accent-hover); }
+
+    #ai-result {
+      background: rgba(255,255,255,0.05);
+      border-radius: var(--radius);
+      padding: 14px;
+      display: none;
+      flex-direction: column;
+      gap: 10px;
+    }
+    #ai-result.visible { display: flex; }
+
+    .ai-section-label {
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.8px;
+      text-transform: uppercase;
+      color: var(--text-secondary);
+      margin-bottom: 4px;
+    }
+
+    #ai-description { font-size: 13px; line-height: 1.6; color: var(--text-primary); }
+    #ai-details { font-size: 12px; line-height: 1.5; color: var(--text-secondary); }
+
+    #ai-tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 5px;
+    }
+    .ai-tag {
+      background: rgba(10,132,255,0.18);
+      color: var(--accent);
+      border-radius: 20px;
+      padding: 3px 9px;
+      font-size: 11px;
+      font-weight: 500;
+    }
+
+    #ai-meta {
+      font-size: 11px;
+      color: var(--text-secondary);
+      border-top: 1px solid var(--border);
+      padding-top: 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+    }
+    .ai-meta-row { display: flex; justify-content: space-between; }
+    .ai-meta-val { color: var(--text-primary); font-size: 11px; }
+
+    /* ------------------------------------------------------------------ */
+    /* Disconnected overlay                                                 */
+    /* ------------------------------------------------------------------ */
+    #disconnected-screen {
+      position: absolute;
+      inset: 0;
+      background: var(--bg-overlay);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 200;
+      backdrop-filter: blur(6px);
+    }
+    #disconnected-screen.visible { display: flex; }
+
+    .disco-card {
+      background: var(--bg-sidebar);
+      border-radius: var(--radius-lg);
+      padding: 40px 36px;
+      text-align: center;
+      max-width: 380px;
+      border: 1px solid var(--border);
+      box-shadow: 0 24px 60px rgba(0,0,0,0.6);
+    }
+    .disco-icon { font-size: 64px; margin-bottom: 16px; }
+    .disco-title { font-size: 20px; font-weight: 700; margin-bottom: 8px; }
+    .disco-sub { font-size: 14px; color: var(--text-secondary); line-height: 1.6; margin-bottom: 24px; }
+
+    #retry-btn {
+      background: var(--accent);
+      border: none;
+      color: #fff;
+      border-radius: var(--radius-sm);
+      padding: 11px 28px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.15s;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+    }
+    #retry-btn:hover { background: var(--accent-hover); }
+
+    .disco-steps {
+      margin-top: 24px;
+      text-align: left;
+      background: rgba(255,255,255,0.04);
+      border-radius: var(--radius-sm);
+      padding: 14px;
+    }
+    .disco-step {
+      font-size: 12px;
+      color: var(--text-secondary);
+      padding: 3px 0;
+      display: flex;
+      gap: 8px;
+    }
+    .disco-step-num {
+      color: var(--accent);
+      font-weight: 600;
+      flex-shrink: 0;
+    }
+
+    /* ------------------------------------------------------------------ */
+    /* Search results banner                                                */
+    /* ------------------------------------------------------------------ */
+    #search-header {
+      display: none;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 0 4px;
+      font-size: 13px;
+      color: var(--text-dark);
+    }
+    #search-header.visible { display: flex; }
+    #search-clear {
+      margin-left: auto;
+      background: transparent;
+      border: 1px solid #ccc;
+      border-radius: 6px;
+      padding: 3px 10px;
+      font-size: 12px;
+      cursor: pointer;
+      color: var(--text-mid);
+      transition: background 0.12s;
+    }
+    #search-clear:hover { background: #eee; }
+
+    /* Scrollbar global */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-thumb { background: rgba(100,100,100,0.3); border-radius: 6px; }
+  </style>
+</head>
+<body>
+
+<!-- ====================================================================== -->
+<!-- Disconnected overlay                                                      -->
+<!-- ====================================================================== -->
+<div id="disconnected-screen">
+  <div class="disco-card">
+    <div class="disco-icon">📱</div>
+    <div class="disco-title">Connect Your iPhone</div>
+    <div class="disco-sub">
+      Connected iPhone isn't detected right now.<br>
+      Plug it in via USB and trust this computer.
+    </div>
+    <button id="retry-btn">
+      <span>↺</span> Retry Connection
+    </button>
+    <div class="disco-steps">
+      <div class="disco-step"><span class="disco-step-num">1.</span><span>Connect iPhone to Mac via USB Lightning/USB-C cable</span></div>
+      <div class="disco-step"><span class="disco-step-num">2.</span><span>On iPhone tap <strong>Trust</strong> when prompted</span></div>
+      <div class="disco-step"><span class="disco-step-num">3.</span><span>Unlock your iPhone screen</span></div>
+      <div class="disco-step"><span class="disco-step-num">4.</span><span>Click Retry Connection above</span></div>
+    </div>
+  </div>
+</div>
+
+<!-- ====================================================================== -->
+<!-- Header                                                                   -->
+<!-- ====================================================================== -->
+<div id="header">
+  <span id="header-icon">📁</span>
+  <span id="header-title">iPhone File Explorer</span>
+
+  <div id="device-pill">
+    <div id="device-dot"></div>
+    <span id="device-name" class="truncate">Checking…</span>
+  </div>
+
+  <div id="search-wrap" style="position:relative;">
+    <span class="search-icon">🔍</span>
+    <input id="search-input" type="text" placeholder="Search files…" autocomplete="off" />
+    <select id="search-type">
+      <option value="all">All files</option>
+      <option value="photos">Photos</option>
+      <option value="videos">Videos</option>
+    </select>
+  </div>
+
+  <div id="view-toggle">
+    <button class="view-btn active" id="btn-grid" title="Grid view">⊞</button>
+    <button class="view-btn" id="btn-list" title="List view">☰</button>
+  </div>
+</div>
+
+<!-- ====================================================================== -->
+<!-- Body layout                                                              -->
+<!-- ====================================================================== -->
+<div id="layout">
+
+  <!-- Sidebar -->
+  <div id="sidebar">
+    <div id="sidebar-header">Folders</div>
+    <div id="tree"></div>
+  </div>
+
+  <!-- Main content -->
+  <div id="main">
+    <!-- Breadcrumb -->
+    <div id="breadcrumb"></div>
+
+    <!-- Files area -->
+    <div id="files-wrap">
+      <div id="status-banner"></div>
+      <div id="search-header">
+        <span id="search-result-label"></span>
+        <button id="search-clear">✕ Clear search</button>
+      </div>
+      <div id="file-grid"></div>
+      <div id="file-list"></div>
+    </div>
+  </div>
+
+  <!-- AI panel -->
+  <div id="ai-panel">
+    <div id="ai-panel-inner">
+      <div id="ai-panel-header">
+        <span id="ai-panel-title">File Details</span>
+        <button id="ai-panel-close">✕</button>
+      </div>
+
+      <div id="ai-preview"><span id="ai-preview-icon"></span></div>
+
+      <div>
+        <div class="ai-section-label">Filename</div>
+        <div id="ai-file-name"></div>
+      </div>
+
+      <button id="ai-desc-btn">✨ Describe with Claude AI</button>
+      <a id="ai-download-btn" href="#" download>⬇ Download File</a>
+
+      <div id="ai-result">
+        <div>
+          <div class="ai-section-label">Description</div>
+          <div id="ai-description"></div>
+        </div>
+        <div>
+          <div class="ai-section-label">Tags</div>
+          <div id="ai-tags"></div>
+        </div>
+        <div id="ai-details-wrap">
+          <div class="ai-section-label">Details</div>
+          <div id="ai-details"></div>
+        </div>
+        <div id="ai-meta"></div>
+      </div>
+
+    </div>
+  </div>
+
+</div>
+
+<!-- ====================================================================== -->
+<!-- JavaScript                                                               -->
+<!-- ====================================================================== -->
+<script>
+'use strict';
+
+// -------------------------------------------------------------------------
+// State
+// -------------------------------------------------------------------------
+const state = {
+  currentPath: '/',
+  viewMode: 'grid',       // 'grid' | 'list'
+  connected: false,
+  selectedFile: null,     // FileEntry | null
+  searchQuery: '',
+  searchType: 'all',
+  isSearchMode: false,
+  treeExpanded: new Set(),  // expanded AFC paths
+  treeLoaded: new Set(),    // loaded AFC paths
+};
+
+// -------------------------------------------------------------------------
+// DOM refs
+// -------------------------------------------------------------------------
+const $ = id => document.getElementById(id);
+const el = {
+  disconnected: $('disconnected-screen'),
+  deviceDot:    $('device-dot'),
+  deviceName:   $('device-name'),
+  tree:         $('tree'),
+  breadcrumb:   $('breadcrumb'),
+  statusBanner: $('status-banner'),
+  fileGrid:     $('file-grid'),
+  fileList:     $('file-list'),
+  filesWrap:    $('files-wrap'),
+  aiPanel:      $('ai-panel'),
+  aiPreview:    $('ai-preview'),
+  aiPreviewIcon:$('ai-preview-icon'),
+  aiFileName:   $('ai-file-name'),
+  aiDescBtn:    $('ai-desc-btn'),
+  aiDownloadBtn:$('ai-download-btn'),
+  aiResult:     $('ai-result'),
+  aiDescription:$('ai-description'),
+  aiTags:       $('ai-tags'),
+  aiDetails:    $('ai-details'),
+  aiDetailWrap: $('ai-details-wrap'),
+  aiMeta:       $('ai-meta'),
+  searchInput:  $('search-input'),
+  searchType:   $('search-type'),
+  searchHeader: $('search-header'),
+  searchLabel:  $('search-result-label'),
+};
+
+// -------------------------------------------------------------------------
+// Utilities
+// -------------------------------------------------------------------------
+function formatSize(bytes) {
+  if (!bytes) return '—';
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+  if (bytes < 1024 * 1024 * 1024) return (bytes / 1024 / 1024).toFixed(1) + ' MB';
+  return (bytes / 1024 / 1024 / 1024).toFixed(2) + ' GB';
+}
+
+function formatDate(ts) {
+  if (!ts) return '—';
+  const d = new Date(ts * 1000);
+  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) +
+         ' ' + d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+}
+
+function fileIcon(entry) {
+  if (entry.is_dir) return '📁';
+  const ext = entry.name.split('.').pop().toLowerCase();
+  const map = {
+    // Images
+    jpg: '🖼️', jpeg: '🖼️', png: '🖼️', gif: '🖼️', heic: '🖼️', heif: '🖼️',
+    webp: '🖼️', bmp: '🖼️', tiff: '🖼️', raw: '🖼️', dng: '🖼️',
+    // Video
+    mp4: '🎬', mov: '🎬', m4v: '🎬', avi: '🎬', mkv: '🎬',
+    // Audio
+    mp3: '🎵', m4a: '🎵', aac: '🎵', wav: '🎵', flac: '🎵',
+    // Docs
+    pdf: '📄', doc: '📝', docx: '📝', txt: '📝', pages: '📝',
+    xls: '📊', xlsx: '📊', numbers: '📊', ppt: '📊', pptx: '📊',
+    // Data
+    json: '📋', xml: '📋', plist: '📋', sqlite: '🗄️', db: '🗄️',
+    // Archives
+    zip: '🗜️', gz: '🗜️', tar: '🗜️',
+    // Code
+    js: '💻', py: '💻', swift: '💻', html: '💻',
+  };
+  return map[ext] || '📄';
+}
+
+function isImage(entry) {
+  const ext = entry.name.split('.').pop().toLowerCase();
+  return ['jpg','jpeg','png','gif','heic','heif','webp','bmp','tiff','tif','raw','dng'].includes(ext);
+}
+
+function isVideo(entry) {
+  const ext = entry.name.split('.').pop().toLowerCase();
+  return ['mp4','mov','m4v','avi','mkv','3gp'].includes(ext);
+}
+
+// -------------------------------------------------------------------------
+// API helpers
+// -------------------------------------------------------------------------
+async function api(endpoint, opts = {}) {
+  const res = await fetch(endpoint, opts);
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(err.detail || res.statusText);
+  }
+  return res.json();
+}
+
+// -------------------------------------------------------------------------
+// Health / connection check
+// -------------------------------------------------------------------------
+async function checkHealth() {
+  try {
+    const data = await api('/api/health');
+    state.connected = data.iphone_connected;
+  } catch {
+    state.connected = false;
+  }
+  updateConnectionUI();
+  return state.connected;
+}
+
+async function updateConnectionUI() {
+  if (state.connected) {
+    el.deviceDot.classList.add('connected');
+    el.disconnected.classList.remove('visible');
+    // Load device info
+    try {
+      const info = await api('/api/device');
+      el.deviceName.textContent = [info.name, info.product_version ? 'iOS ' + info.product_version : ''].filter(Boolean).join(' · ');
+    } catch {
+      el.deviceName.textContent = 'Connected';
+    }
+  } else {
+    el.deviceDot.classList.remove('connected');
+    el.deviceName.textContent = 'Not connected';
+    el.disconnected.classList.add('visible');
+  }
+}
+
+// -------------------------------------------------------------------------
+// Folder tree
+// -------------------------------------------------------------------------
+function buildTreeNode(entry, depth = 0) {
+  const item = document.createElement('div');
+  item.className = 'tree-item';
+  item.style.paddingLeft = (12 + depth * 16) + 'px';
+  item.dataset.path = entry.path;
+
+  const toggle = document.createElement('div');
+  toggle.className = 'tree-toggle leaf';
+  if (entry.is_dir) toggle.classList.remove('leaf');
+
+  const icon = document.createElement('span');
+  icon.className = 'tree-icon';
+  icon.textContent = entry.is_dir ? '📁' : fileIcon(entry);
+
+  const label = document.createElement('span');
+  label.className = 'tree-label truncate';
+  label.textContent = entry.name;
+
+  item.append(toggle, icon, label);
+
+  if (entry.is_dir) {
+    const childWrap = document.createElement('div');
+    childWrap.className = 'tree-children';
+    childWrap.style.display = 'none';
+
+    item.addEventListener('click', async e => {
+      e.stopPropagation();
+      navigateTo(entry.path);
+
+      if (state.treeExpanded.has(entry.path)) {
+        // Collapse
+        state.treeExpanded.delete(entry.path);
+        childWrap.style.display = 'none';
+        toggle.classList.remove('open');
+        icon.textContent = '📁';
+      } else {
+        // Expand
+        state.treeExpanded.add(entry.path);
+        toggle.classList.add('open');
+        icon.textContent = '📂';
+        childWrap.style.display = 'block';
+
+        if (!state.treeLoaded.has(entry.path)) {
+          state.treeLoaded.add(entry.path);
+          childWrap.innerHTML = '<div style="padding:4px 0 4px 16px;font-size:11px;color:#888">Loading…</div>';
+          try {
+            const entries = await api('/api/files?path=' + encodeURIComponent(entry.path));
+            childWrap.innerHTML = '';
+            const dirs = entries.filter(e => e.is_dir);
+            if (dirs.length === 0) {
+              childWrap.innerHTML = '<div style="padding:4px 0 4px 16px;font-size:11px;color:#888">Empty</div>';
+            } else {
+              dirs.forEach(child => {
+                const { node, children } = buildTreeNode(child, depth + 1);
+                childWrap.append(node);
+                if (children) childWrap.append(children);
+              });
+            }
+          } catch (err) {
+            childWrap.innerHTML = '<div style="padding:4px 0 4px 16px;font-size:11px;color:#ff453a">Error</div>';
+          }
+        }
+      }
+    });
+
+    return { node: item, children: childWrap };
+  } else {
+    item.addEventListener('click', e => {
+      e.stopPropagation();
+      navigateTo(entry.path.rsplit ? entry.path : entry.path);
+    });
+    return { node: item, children: null };
+  }
+}
+
+async function loadRootTree() {
+  el.tree.innerHTML = '<div style="padding:12px 16px;font-size:12px;color:#888;">Loading…</div>';
+  try {
+    const entries = await api('/api/files?path=/');
+    el.tree.innerHTML = '';
+
+    // Add root node
+    const rootItem = document.createElement('div');
+    rootItem.className = 'tree-item';
+    rootItem.style.paddingLeft = '12px';
+    rootItem.innerHTML = '<span style="width:16px;display:inline-block"></span><span class="tree-icon">📱</span><span class="tree-label truncate">/ (Device Root)</span>';
+    rootItem.addEventListener('click', () => navigateTo('/'));
+    el.tree.append(rootItem);
+
+    const dirs = entries.filter(e => e.is_dir);
+    dirs.forEach(entry => {
+      const { node, children } = buildTreeNode(entry, 1);
+      el.tree.append(node);
+      if (children) el.tree.append(children);
+    });
+  } catch (err) {
+    el.tree.innerHTML = '<div style="padding:12px 16px;font-size:12px;color:#ff453a;">Failed to load</div>';
+  }
+}
+
+function updateTreeActive(path) {
+  document.querySelectorAll('.tree-item').forEach(item => {
+    item.classList.toggle('active', item.dataset.path === path);
+  });
+}
+
+// -------------------------------------------------------------------------
+// Breadcrumb
+// -------------------------------------------------------------------------
+function renderBreadcrumb(path) {
+  el.breadcrumb.innerHTML = '';
+  const parts = path === '/' ? [''] : path.split('/').filter(Boolean);
+
+  const rootSpan = document.createElement('span');
+  rootSpan.className = 'breadcrumb-part';
+  rootSpan.textContent = '📱 Root';
+  rootSpan.addEventListener('click', () => navigateTo('/'));
+  el.breadcrumb.append(rootSpan);
+
+  let accumulated = '';
+  parts.forEach((part, i) => {
+    accumulated += '/' + part;
+    const sep = document.createElement('span');
+    sep.className = 'breadcrumb-sep';
+    sep.textContent = '›';
+    el.breadcrumb.append(sep);
+
+    const span = document.createElement('span');
+    span.className = 'breadcrumb-part' + (i === parts.length - 1 ? ' last' : '');
+    span.textContent = part;
+    const capPath = accumulated;
+    span.addEventListener('click', () => navigateTo(capPath));
+    el.breadcrumb.append(span);
+  });
+}
+
+// -------------------------------------------------------------------------
+// Navigation
+// -------------------------------------------------------------------------
+async function navigateTo(path) {
+  state.currentPath = path;
+  state.isSearchMode = false;
+  el.searchInput.value = '';
+  el.searchHeader.classList.remove('visible');
+  renderBreadcrumb(path);
+  updateTreeActive(path);
+  await loadDirectory(path);
+}
+
+async function loadDirectory(path) {
+  showStatus('Loading…', 'info', true);
+  el.fileGrid.innerHTML = '';
+  el.fileList.innerHTML = '';
+
+  try {
+    const entries = await api('/api/files?path=' + encodeURIComponent(path));
+    clearStatus();
+    if (entries.length === 0) {
+      showStatus('This folder is empty.', 'info');
+      return;
+    }
+    renderFiles(entries);
+  } catch (err) {
+    showStatus('Error: ' + err.message, 'error');
+  }
+}
+
+// -------------------------------------------------------------------------
+// File rendering
+// -------------------------------------------------------------------------
+function renderFiles(entries) {
+  el.fileGrid.innerHTML = '';
+  el.fileList.innerHTML = '';
+
+  if (state.viewMode === 'grid') {
+    el.fileGrid.style.display = 'grid';
+    el.fileList.classList.remove('visible');
+    entries.forEach(entry => el.fileGrid.append(makeGridCard(entry)));
+  } else {
+    el.fileGrid.style.display = 'none';
+    el.fileList.classList.add('visible');
+    entries.forEach(entry => el.fileList.append(makeListRow(entry)));
+  }
+}
+
+function makeGridCard(entry) {
+  const card = document.createElement('div');
+  card.className = 'file-card';
+
+  const thumbDiv = document.createElement('div');
+  thumbDiv.className = 'file-thumb';
+
+  if (isImage(entry)) {
+    const img = document.createElement('img');
+    img.alt = entry.name;
+    img.loading = 'lazy';
+    img.src = '/api/thumbnail?path=' + encodeURIComponent(entry.path);
+    img.onerror = () => { thumbDiv.innerHTML = '🖼️'; };
+    thumbDiv.append(img);
+  } else {
+    thumbDiv.textContent = fileIcon(entry);
+  }
+
+  const nameDiv = document.createElement('div');
+  nameDiv.className = 'file-name';
+  nameDiv.title = entry.name;
+  nameDiv.textContent = entry.name;
+
+  const metaDiv = document.createElement('div');
+  metaDiv.className = 'file-meta';
+  metaDiv.textContent = entry.is_dir ? 'Folder' : formatSize(entry.size);
+
+  // Action buttons
+  const actions = document.createElement('div');
+  actions.className = 'file-actions';
+
+  if (!entry.is_dir) {
+    const dlBtn = document.createElement('button');
+    dlBtn.className = 'icon-btn';
+    dlBtn.title = 'Download';
+    dlBtn.textContent = '⬇';
+    dlBtn.addEventListener('click', e => { e.stopPropagation(); downloadFile(entry); });
+
+    if (isImage(entry) || isVideo(entry) || true) {
+      const aiBtn = document.createElement('button');
+      aiBtn.className = 'icon-btn ai-btn';
+      aiBtn.title = 'Describe with AI';
+      aiBtn.textContent = '✨';
+      aiBtn.addEventListener('click', e => { e.stopPropagation(); openAIPanel(entry); });
+      actions.append(aiBtn);
+    }
+    actions.append(dlBtn);
+  }
+
+  card.append(thumbDiv, nameDiv, metaDiv, actions);
+
+  card.addEventListener('click', () => {
+    if (entry.is_dir) {
+      navigateTo(entry.path);
+    } else {
+      selectFile(card, entry);
+    }
+  });
+
+  return card;
+}
+
+function makeListRow(entry) {
+  const row = document.createElement('div');
+  row.className = 'list-row';
+
+  const icon = document.createElement('div');
+  icon.className = 'list-icon';
+  icon.textContent = fileIcon(entry);
+
+  const name = document.createElement('div');
+  name.className = 'list-name truncate';
+  name.textContent = entry.name;
+  name.title = entry.name;
+
+  const size = document.createElement('div');
+  size.className = 'list-size muted';
+  size.textContent = entry.is_dir ? '—' : formatSize(entry.size);
+
+  const date = document.createElement('div');
+  date.className = 'list-date muted';
+  date.textContent = formatDate(entry.modified);
+
+  const actions = document.createElement('div');
+  actions.className = 'list-actions';
+
+  if (!entry.is_dir) {
+    const aiBtn = document.createElement('button');
+    aiBtn.className = 'list-icon-btn ai';
+    aiBtn.title = 'Describe with AI';
+    aiBtn.textContent = '✨';
+    aiBtn.addEventListener('click', e => { e.stopPropagation(); openAIPanel(entry); });
+
+    const dlBtn = document.createElement('button');
+    dlBtn.className = 'list-icon-btn';
+    dlBtn.title = 'Download';
+    dlBtn.textContent = '⬇';
+    dlBtn.addEventListener('click', e => { e.stopPropagation(); downloadFile(entry); });
+
+    actions.append(aiBtn, dlBtn);
+  }
+
+  row.append(icon, name, size, date, actions);
+
+  row.addEventListener('click', () => {
+    if (entry.is_dir) {
+      navigateTo(entry.path);
+    } else {
+      document.querySelectorAll('.list-row.selected').forEach(r => r.classList.remove('selected'));
+      row.classList.add('selected');
+      openAIPanel(entry);
+    }
+  });
+
+  return row;
+}
+
+function selectFile(card, entry) {
+  document.querySelectorAll('.file-card.selected').forEach(c => c.classList.remove('selected'));
+  card.classList.add('selected');
+  openAIPanel(entry);
+}
+
+// -------------------------------------------------------------------------
+// File download
+// -------------------------------------------------------------------------
+function downloadFile(entry) {
+  const a = document.createElement('a');
+  a.href = '/api/download?path=' + encodeURIComponent(entry.path);
+  a.download = entry.name;
+  a.click();
+}
+
+// -------------------------------------------------------------------------
+// AI Panel
+// -------------------------------------------------------------------------
+function openAIPanel(entry) {
+  state.selectedFile = entry;
+
+  el.aiFileName.textContent = entry.name;
+  el.aiResult.classList.remove('visible');
+
+  // Preview
+  el.aiPreview.innerHTML = '';
+  if (isImage(entry)) {
+    const img = document.createElement('img');
+    img.src = '/api/thumbnail?path=' + encodeURIComponent(entry.path);
+    img.alt = entry.name;
+    img.onerror = () => { el.aiPreview.textContent = '🖼️'; };
+    el.aiPreview.append(img);
+  } else {
+    el.aiPreview.textContent = fileIcon(entry);
+  }
+
+  // Download link
+  el.aiDownloadBtn.href = '/api/download?path=' + encodeURIComponent(entry.path);
+  el.aiDownloadBtn.download = entry.name;
+
+  // Meta
+  el.aiMeta.innerHTML = `
+    <div class="ai-meta-row"><span>Size</span><span class="ai-meta-val">${formatSize(entry.size)}</span></div>
+    <div class="ai-meta-row"><span>Modified</span><span class="ai-meta-val">${formatDate(entry.modified)}</span></div>
+    <div class="ai-meta-row"><span>Path</span><span class="ai-meta-val mono" style="max-width:200px;word-break:break-all;">${entry.path}</span></div>
+  `;
+
+  el.aiDescBtn.disabled = false;
+  el.aiDescBtn.innerHTML = '✨ Describe with Claude AI';
+  el.aiPanel.classList.add('open');
+}
+
+$('ai-panel-close').addEventListener('click', () => {
+  el.aiPanel.classList.remove('open');
+  document.querySelectorAll('.file-card.selected, .list-row.selected').forEach(el => el.classList.remove('selected'));
+  state.selectedFile = null;
+});
+
+el.aiDescBtn.addEventListener('click', async () => {
+  if (!state.selectedFile) return;
+  el.aiDescBtn.disabled = true;
+  el.aiDescBtn.innerHTML = '<span class="spinner"></span> Analyzing…';
+  el.aiResult.classList.remove('visible');
+
+  try {
+    const result = await api('/api/describe', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: state.selectedFile.path }),
+    });
+
+    el.aiDescription.textContent = result.description || '(No description)';
+
+    el.aiTags.innerHTML = '';
+    const tags = Array.isArray(result.tags) ? result.tags : (result.tags ? [result.tags] : []);
+    tags.forEach(tag => {
+      const span = document.createElement('span');
+      span.className = 'ai-tag';
+      span.textContent = tag;
+      el.aiTags.append(span);
+    });
+
+    if (result.details && result.details.trim()) {
+      el.aiDetails.textContent = result.details;
+      el.aiDetailWrap.style.display = 'block';
+    } else {
+      el.aiDetailWrap.style.display = 'none';
+    }
+
+    el.aiResult.classList.add('visible');
+    el.aiDescBtn.innerHTML = '✨ Re-analyze';
+  } catch (err) {
+    el.aiDescBtn.innerHTML = '⚠️ ' + err.message;
+  } finally {
+    el.aiDescBtn.disabled = false;
+  }
+});
+
+// -------------------------------------------------------------------------
+// Search
+// -------------------------------------------------------------------------
+let searchTimer = null;
+el.searchInput.addEventListener('input', () => {
+  clearTimeout(searchTimer);
+  const q = el.searchInput.value.trim();
+  if (!q) {
+    exitSearch();
+    return;
+  }
+  searchTimer = setTimeout(() => runSearch(q), 400);
+});
+
+el.searchType.addEventListener('change', () => {
+  const q = el.searchInput.value.trim();
+  if (q) runSearch(q);
+});
+
+async function runSearch(q) {
+  state.searchQuery = q;
+  state.searchType = el.searchType.value;
+  state.isSearchMode = true;
+  el.searchHeader.classList.add('visible');
+  el.searchLabel.textContent = `Searching for "${q}"…`;
+  showStatus('Searching…', 'info', true);
+  el.fileGrid.innerHTML = '';
+  el.fileList.innerHTML = '';
+
+  try {
+    const url = `/api/search?q=${encodeURIComponent(q)}&path=${encodeURIComponent('/')}&type=${state.searchType}`;
+    const results = await api(url);
+    clearStatus();
+    el.searchLabel.textContent = `${results.length} result${results.length !== 1 ? 's' : ''} for "${q}"`;
+    if (results.length === 0) {
+      showStatus('No files found.', 'info');
+      return;
+    }
+    renderFiles(results);
+  } catch (err) {
+    showStatus('Search error: ' + err.message, 'error');
+  }
+}
+
+function exitSearch() {
+  state.isSearchMode = false;
+  el.searchHeader.classList.remove('visible');
+  clearStatus();
+  loadDirectory(state.currentPath);
+}
+
+$('search-clear').addEventListener('click', () => {
+  el.searchInput.value = '';
+  exitSearch();
+});
+
+// -------------------------------------------------------------------------
+// View toggle
+// -------------------------------------------------------------------------
+$('btn-grid').addEventListener('click', () => {
+  state.viewMode = 'grid';
+  $('btn-grid').classList.add('active');
+  $('btn-list').classList.remove('active');
+  if (state.isSearchMode) {
+    runSearch(state.searchQuery);
+  } else {
+    loadDirectory(state.currentPath);
+  }
+});
+
+$('btn-list').addEventListener('click', () => {
+  state.viewMode = 'list';
+  $('btn-list').classList.add('active');
+  $('btn-grid').classList.remove('active');
+  if (state.isSearchMode) {
+    runSearch(state.searchQuery);
+  } else {
+    loadDirectory(state.currentPath);
+  }
+});
+
+// -------------------------------------------------------------------------
+// Status banner
+// -------------------------------------------------------------------------
+function showStatus(msg, type = 'info', spinner = false) {
+  el.statusBanner.className = 'status-banner ' + type;
+  el.statusBanner.innerHTML = (spinner ? '<span class="spinner"></span>' : '') + `<span>${msg}</span>`;
+  el.statusBanner.style.display = 'flex';
+}
+
+function clearStatus() {
+  el.statusBanner.style.display = 'none';
+  el.statusBanner.className = 'status-banner';
+}
+
+// -------------------------------------------------------------------------
+// Retry connection
+// -------------------------------------------------------------------------
+$('retry-btn').addEventListener('click', async () => {
+  const btn = $('retry-btn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner" style="border-color:rgba(255,255,255,0.3);border-top-color:#fff;width:14px;height:14px;"></span> Checking…';
+  const ok = await checkHealth();
+  btn.disabled = false;
+  btn.innerHTML = '<span>↺</span> Retry Connection';
+  if (ok) {
+    await init();
+  }
+});
+
+// -------------------------------------------------------------------------
+// Init
+// -------------------------------------------------------------------------
+async function init() {
+  const ok = await checkHealth();
+  if (!ok) return;
+  await Promise.all([loadRootTree(), navigateTo('/')]);
+}
+
+// Poll health every 15s
+setInterval(async () => {
+  const wasConnected = state.connected;
+  await checkHealth();
+  if (!wasConnected && state.connected) {
+    // Just reconnected
+    init();
+  }
+}, 15000);
+
+init();
+</script>
+</body>
+</html>
